@@ -113,8 +113,12 @@ function NewDownloadForm({ onDone }: { onDone: () => void }): React.JSX.Element 
   const dropLink = useAppStore((store) => store.dropLink)
   const shownLink = links.find((link) => link.id === shownId)
   const position = shownLink ? links.indexOf(shownLink) : -1
-  const destinationDir = useAppStore((store) => store.destinationDir)
-  const setDestinationDir = useAppStore((store) => store.setDestinationDir)
+  const defaultDestinationDir = useAppStore((store) => store.defaultDestinationDir)
+  const askDestinationEachTime = useAppStore((store) => store.askDestinationEachTime)
+  const storeDestinationDir = useAppStore((store) => store.destinationDir)
+  const [destinationDir, setDestinationDir] = useState(
+    () => defaultDestinationDir ?? storeDestinationDir
+  )
   const full = useAppStore(
     (store) =>
       Object.values(store.downloads).filter((download) => download.status === 'downloading')
@@ -308,7 +312,12 @@ function NewDownloadForm({ onDone }: { onDone: () => void }): React.JSX.Element 
 
   const handleBrowse = async (): Promise<void> => {
     const chosen = await window.plexo.chooseDestinationFolder(destinationDir)
-    if (chosen) setDestinationDir(chosen)
+    if (chosen) {
+      setDestinationDir(chosen)
+      if (!defaultDestinationDir) {
+        useAppStore.getState().setDestinationDir(chosen)
+      }
+    }
   }
 
   // A .torrent or .nzb file goes in the link field as its path; the probe reads it from there.
@@ -607,15 +616,17 @@ function NewDownloadForm({ onDone }: { onDone: () => void }): React.JSX.Element 
           </div>
         )}
 
-        <div className="flex items-center gap-3">
-          <div className={labelClass}>Save to</div>
-          <div className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
-            {toDisplayPath(destinationDir, homeDir)}
+        {askDestinationEachTime && (
+          <div className="flex items-center gap-3">
+            <div className={labelClass}>Save to</div>
+            <div className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
+              {toDisplayPath(destinationDir, homeDir)}
+            </div>
+            <Button type="button" variant="secondary" size="sm" onClick={handleBrowse}>
+              Change
+            </Button>
           </div>
-          <Button type="button" variant="secondary" size="sm" onClick={handleBrowse}>
-            Change
-          </Button>
-        </div>
+        )}
 
         <div className="flex items-start gap-3">
           <div className={cn(labelClass, 'pt-1.5')} id="new-download-networks">
