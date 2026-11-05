@@ -124,7 +124,7 @@ export function NetworkEditPopover({
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Edit network"
+                    aria-label={`Edit ${visual.name}`}
                     className={cn('shrink-0 text-muted-foreground', className)}
                   >
                     <Pencil className="size-3" />

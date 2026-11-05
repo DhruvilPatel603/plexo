@@ -42,7 +42,6 @@ type Draft = Pick<
   | 'networkPreferences'
   | 'downloadSchedule'
   | 'defaultDestinationDir'
-  | 'askDestinationEachTime'
 >
 
 /** All downloads as a fresh install has them. */
@@ -52,8 +51,7 @@ const GENERAL_DEFAULTS = {
   slowMode: false,
   slowModeSpeed: DEFAULT_SLOW_MODE_SPEED,
   downloadsAtOnce: DOWNLOADS_AT_ONCE.default,
-  defaultDestinationDir: undefined,
-  askDestinationEachTime: true
+  defaultDestinationDir: undefined
 } satisfies Partial<Draft>
 
 const MB = 1024 ** 2
@@ -228,6 +226,10 @@ function GeneralPage({
 }): React.JSX.Element {
   const homeDir = useAppStore((store) => store.homeDir)
   const downloadsDir = useAppStore((store) => store.downloadsDir)
+  const destinationDir = useAppStore((store) => store.destinationDir)
+  const effectiveDestinationDir = draft.defaultDestinationDir ?? (destinationDir || downloadsDir)
+  const usesSystemDefault =
+    draft.defaultDestinationDir === undefined && effectiveDestinationDir === downloadsDir
   const { speedLimit, slowMode, slowModeSpeed, downloadsAtOnce } = draft
   const [confirmReset, setConfirmReset] = useState(false)
   const atDefaults = Object.entries(GENERAL_DEFAULTS).every(
@@ -250,8 +252,8 @@ function GeneralPage({
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
-            {toDisplayPath(draft.defaultDestinationDir ?? downloadsDir, homeDir)}
-            {draft.defaultDestinationDir === undefined && (
+            {toDisplayPath(effectiveDestinationDir, homeDir)}
+            {usesSystemDefault && (
               <span className="ml-2 font-sans text-[11px] text-muted-foreground">
                 (system default)
               </span>
@@ -262,38 +264,12 @@ function GeneralPage({
             variant="secondary"
             size="sm"
             onClick={async () => {
-              const chosen = await window.plexo.chooseDestinationFolder(
-                draft.defaultDestinationDir ?? downloadsDir
-              )
+              const chosen = await window.plexo.chooseDestinationFolder(effectiveDestinationDir)
               if (chosen) change({ defaultDestinationDir: chosen })
             }}
           >
             Change
           </Button>
-          {draft.defaultDestinationDir !== undefined && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => change({ defaultDestinationDir: undefined })}
-            >
-              Reset to default
-            </Button>
-          )}
-        </div>
-      </section>
-
-      <section className={sectionClass}>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h4 className={headingClass}>Save location prompt</h4>
-            <p className={hintClass}>Ask where to save each download before starting.</p>
-          </div>
-          <Switch
-            aria-label="Ask where to save each download before starting"
-            checked={draft.askDestinationEachTime}
-            onCheckedChange={(askDestinationEachTime) => change({ askDestinationEachTime })}
-          />
         </div>
       </section>
 
@@ -670,8 +646,7 @@ function LimitsEditor({
       downloadsAtOnce,
       networkPreferences,
       downloadSchedule,
-      defaultDestinationDir,
-      askDestinationEachTime
+      defaultDestinationDir
     } = useAppStore.getState()
     return {
       speedLimit,
@@ -680,8 +655,7 @@ function LimitsEditor({
       downloadsAtOnce,
       networkPreferences,
       downloadSchedule,
-      defaultDestinationDir,
-      askDestinationEachTime
+      defaultDestinationDir
     }
   })
   const change = (patch: Partial<Draft>): void =>
@@ -710,12 +684,13 @@ function LimitsEditor({
       patch.downloadsAtOnce = draft.downloadsAtOnce
     if (draft.downloadSchedule !== store.downloadSchedule)
       patch.downloadSchedule = draft.downloadSchedule
-    if (draft.defaultDestinationDir !== store.defaultDestinationDir) {
+    const effectiveTarget = draft.defaultDestinationDir ?? store.downloadsDir
+    if (
+      draft.defaultDestinationDir !== store.defaultDestinationDir ||
+      effectiveTarget !== store.destinationDir
+    ) {
       patch.defaultDestinationDir = draft.defaultDestinationDir
-      patch.destinationDir = draft.defaultDestinationDir ?? store.downloadsDir
-    }
-    if (draft.askDestinationEachTime !== store.askDestinationEachTime) {
-      patch.askDestinationEachTime = draft.askDestinationEachTime
+      patch.destinationDir = effectiveTarget
     }
     for (const [id, preference] of Object.entries(draft.networkPreferences)) {
       if (preference !== store.networkPreferences[id]) {

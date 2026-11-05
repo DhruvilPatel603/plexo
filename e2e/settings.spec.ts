@@ -1,5 +1,4 @@
-import { readFile } from 'node:fs/promises'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
 
@@ -63,7 +62,6 @@ test.describe('pinned default download location & settings preferences', () => {
     const dialogAfter = pageAfter.getByRole('dialog', { name: 'Speed & data limits' })
     const sectionAfter = dialogAfter.locator('section', { hasText: 'Default download folder' })
     await expect(sectionAfter.getByText(customDir)).toBeVisible()
-    await expect(sectionAfter.getByRole('button', { name: 'Reset to default' })).toBeVisible()
     await dialogAfter.getByRole('button', { name: 'Cancel' }).click()
   })
 
@@ -105,14 +103,14 @@ test.describe('pinned default download location & settings preferences', () => {
     await plexo.page.keyboard.press('Escape')
   })
 
-  test('resetting default download directory reverts to system default', async ({
-    plexo,
-    dirs
-  }) => {
+  test('changing default download directory updates the destination', async ({ plexo, dirs }) => {
     const customDir = join(dirs.dest, 'CustomDir')
+    const secondDir = join(dirs.dest, 'SecondDir')
     await mkdir(customDir, { recursive: true })
+    await mkdir(secondDir, { recursive: true })
     await plexo.api.updateSettings({ defaultDestinationDir: customDir })
     await plexo.relaunch()
+    await stubNativeUi(plexo, secondDir)
 
     const page = plexo.page
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -120,59 +118,124 @@ test.describe('pinned default download location & settings preferences', () => {
     const section = dialog.locator('section', { hasText: 'Default download folder' })
     await expect(section.getByText(customDir)).toBeVisible()
 
-    // Click Reset to default
-    await section.getByRole('button', { name: 'Reset to default' }).click()
-    await expect(section.getByText('(system default)')).toBeVisible()
+    // Click Change
+    await section.getByRole('button', { name: 'Change' }).click()
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(dialog).toBeHidden()
 
     // Verify settings updated on disk
     const saved = JSON.parse(await readFile(join(dirs.userData, 'app-settings.json'), 'utf8'))
-    expect(saved.defaultDestinationDir).toBeUndefined()
+    expect(saved.defaultDestinationDir).toBe(secondDir)
   })
 
-  test('disabling save location prompt waits for user to click Download', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: 1024 })
-    await plexo.api.updateSettings({ askDestinationEachTime: false })
+  test('a missing pinned folder falls back safely and can be changed', async ({ plexo, dirs }) => {
+    const missingDir = join(dirs.dest, 'unplugged')
+
+    await plexo.api.updateSettings({
+      defaultDestinationDir: missingDir
+    })
     await plexo.relaunch()
 
+    await plexo.newDownload()
+    const dialog = plexo.page.getByRole('dialog', { name: 'New download' })
+    const destinationRow = dialog.getByText('Save to', { exact: true }).locator('..')
+    // Main rejects the missing pinned folder before the renderer sees it, so the dialog shows its
+    // usable fallback and exposes Change.
+    await expect(destinationRow).toBeVisible()
+    await expect(destinationRow).not.toContainText(missingDir)
+    await expect(destinationRow.getByRole('button', { name: 'Change' })).toBeVisible()
+    await plexo.page.keyboard.press('Escape')
+  })
+
+  test('Settings shows the effective legacy download folder', async ({ plexo, dirs }) => {
+    const legacyDir = join(dirs.dest, 'LegacyDownloads')
+    await mkdir(legacyDir, { recursive: true })
+    await plexo.api.updateSettings({ destinationDir: legacyDir })
+    await plexo.relaunch()
+
+    await plexo.page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const section = plexo.page
+      .getByRole('dialog', { name: 'Speed & data limits' })
+      .locator('section', { hasText: 'Default download folder' })
+    await expect(section.getByText(legacyDir)).toBeVisible()
+    await expect(section.getByText('(system default)')).toBeHidden()
+    await plexo.page.getByRole('button', { name: 'Cancel' }).click()
+  })
+
+  test('one-off folder changes without pinned default do not overwrite system default', async ({
+    plexo,
+    dirs,
+    serve
+  }) => {
+    const oneOffDir = join(dirs.dest, 'OneOffOnly')
+    await mkdir(oneOffDir, { recursive: true })
+    await stubNativeUi(plexo, oneOffDir)
+
+    const origin = await serve({ size: 1024 })
     const link = await plexo.newDownload()
     await link.fill(origin.url())
 
     const dialog = plexo.page.getByRole('dialog', { name: 'New download' })
-    // Save to is hidden
-    await expect(dialog.getByText('Save to')).toBeHidden()
-
-    // Download button is visible and must be manually clicked to start
-    const downloadBtn = dialog.getByRole('button', { name: 'Download' })
-    await expect(downloadBtn).toBeEnabled()
-    await downloadBtn.click()
-
+    await dialog.getByRole('button', { name: 'Change' }).click()
+    await expect(dialog.getByText(oneOffDir)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Download' }).click()
     await plexo.waitForHttpStatus('completed')
-    const completed = await plexo.current()
-    expect(completed?.status).toBe('completed')
+
+    // Next new download must revert to the system default downloads directory
+    await plexo.page.getByRole('button', { name: 'Downloads' }).click()
+    await plexo.newDownload()
+    const dialogNext = plexo.page.getByRole('dialog', { name: 'New download' })
+    await expect(dialogNext.getByText(oneOffDir)).toBeHidden()
+    await plexo.page.keyboard.press('Escape')
   })
 
-  test('Save to prompt is hidden in New Download dialog when askDestinationEachTime is false', async ({
-    plexo
+  test('resumed download continues saving to its original destination directory', async ({
+    plexo,
+    dirs,
+    serve
   }) => {
-    // By default, askDestinationEachTime is true -> Save to is visible
-    await plexo.newDownload()
-    const dialog = plexo.page.getByRole('dialog', { name: 'New download' })
-    await expect(dialog.getByText('Save to')).toBeVisible()
-    await plexo.page.keyboard.press('Escape')
+    const originalDir = join(dirs.dest, 'OriginalDest')
+    const newDefaultDir = join(dirs.dest, 'NewDefaultDest')
+    await mkdir(originalDir, { recursive: true })
+    await mkdir(newDefaultDir, { recursive: true })
 
-    // Turn off askDestinationEachTime
-    await plexo.api.updateSettings({ askDestinationEachTime: false })
+    await stubNativeUi(plexo, originalDir)
+    const origin = await serve({ size: 100 * 1024, bytesPerSecond: 20 * 1024 })
+    const link = await plexo.newDownload()
+    await link.fill(origin.url())
+
+    const dialog = plexo.page.getByRole('dialog', { name: 'New download' })
+    await dialog.getByRole('button', { name: 'Change' }).click()
+    await expect(dialog.getByText(originalDir)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Download' }).click()
+
+    // Wait for the download to start and pause it
+    const pauseBtn = plexo.page.getByRole('button', { name: 'Pause' })
+    await expect(pauseBtn).toBeVisible()
+    await pauseBtn.click()
+    await plexo.waitForHttpStatus('paused')
+
+    // Change default destination directory in Settings
+    await plexo.api.updateSettings({ defaultDestinationDir: newDefaultDir })
     await plexo.relaunch()
 
-    // Open New download -> Save to must now be hidden
+    // Resume the download
+    const resumeBtn = plexo.page.getByRole('button', { name: 'Resume' })
+    await expect(resumeBtn).toBeVisible()
+    await resumeBtn.click()
+    await plexo.waitForHttpStatus('completed')
+
+    // Verify completed file exists in originalDir, not newDefaultDir
+    const originalFiles = await readdir(originalDir)
+    expect(originalFiles.length).toBeGreaterThan(0)
+    const newDefaultFiles = await readdir(newDefaultDir)
+    expect(newDefaultFiles.length).toBe(0)
+
+    // And verify subsequent new download defaults to newDefaultDir
+    await plexo.page.getByRole('button', { name: 'Downloads' }).click()
     await plexo.newDownload()
-    const dialogAfter = plexo.page.getByRole('dialog', { name: 'New download' })
-    await expect(dialogAfter.getByText('Save to')).toBeHidden()
+    const newDialog = plexo.page.getByRole('dialog', { name: 'New download' })
+    await expect(newDialog.getByText(newDefaultDir)).toBeVisible()
     await plexo.page.keyboard.press('Escape')
   })
 })
