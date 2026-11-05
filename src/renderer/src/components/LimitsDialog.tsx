@@ -684,13 +684,9 @@ function LimitsEditor({
       patch.downloadsAtOnce = draft.downloadsAtOnce
     if (draft.downloadSchedule !== store.downloadSchedule)
       patch.downloadSchedule = draft.downloadSchedule
-    const effectiveTarget = draft.defaultDestinationDir ?? store.downloadsDir
-    if (
-      draft.defaultDestinationDir !== store.defaultDestinationDir ||
-      effectiveTarget !== store.destinationDir
-    ) {
+    if (draft.defaultDestinationDir !== store.defaultDestinationDir) {
       patch.defaultDestinationDir = draft.defaultDestinationDir
-      patch.destinationDir = effectiveTarget
+      patch.destinationDir = draft.defaultDestinationDir ?? store.downloadsDir
     }
     for (const [id, preference] of Object.entries(draft.networkPreferences)) {
       if (preference !== store.networkPreferences[id]) {

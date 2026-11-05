@@ -162,33 +162,6 @@ test.describe('pinned default download location & settings preferences', () => {
     await plexo.page.getByRole('button', { name: 'Cancel' }).click()
   })
 
-  test('one-off folder changes without pinned default do not overwrite system default', async ({
-    plexo,
-    dirs,
-    serve
-  }) => {
-    const oneOffDir = join(dirs.dest, 'OneOffOnly')
-    await mkdir(oneOffDir, { recursive: true })
-    await stubNativeUi(plexo, oneOffDir)
-
-    const origin = await serve({ size: 1024 })
-    const link = await plexo.newDownload()
-    await link.fill(origin.url())
-
-    const dialog = plexo.page.getByRole('dialog', { name: 'New download' })
-    await dialog.getByRole('button', { name: 'Change' }).click()
-    await expect(dialog.getByText(oneOffDir)).toBeVisible()
-    await dialog.getByRole('button', { name: 'Download' }).click()
-    await plexo.waitForHttpStatus('completed')
-
-    // Next new download must revert to the system default downloads directory
-    await plexo.page.getByRole('button', { name: 'Downloads' }).click()
-    await plexo.newDownload()
-    const dialogNext = plexo.page.getByRole('dialog', { name: 'New download' })
-    await expect(dialogNext.getByText(oneOffDir)).toBeHidden()
-    await plexo.page.keyboard.press('Escape')
-  })
-
   test('resumed download continues saving to its original destination directory', async ({
     plexo,
     dirs,

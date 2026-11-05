@@ -159,8 +159,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
         slowModeSpeed: settings.slowModeSpeed ?? DEFAULT_SLOW_MODE_SPEED,
         speedUnit: settings.speedUnit ?? 'bytes',
         destinationDir: destinationExists ? effectiveDir : undefined,
-        defaultDestinationDir:
-          settings.defaultDestinationDir ?? (destinationExists ? destinationDir : undefined)
+        defaultDestinationDir: settings.defaultDestinationDir
       } satisfies InitialState
     } catch (error) {
       console.error('[plexo] failed to read initial state', error)
