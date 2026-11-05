@@ -162,6 +162,38 @@ test.describe('pinned default download location & settings preferences', () => {
     await plexo.page.getByRole('button', { name: 'Cancel' }).click()
   })
 
+  test('without pinned default, folder changes in New Download update remembered destination', async ({
+    plexo,
+    dirs,
+    serve
+  }) => {
+    const rememberedDir = join(dirs.dest, 'RememberedDir')
+    await mkdir(rememberedDir, { recursive: true })
+    await stubNativeUi(plexo, rememberedDir)
+
+    const origin = await serve({ size: 1024 })
+    const link = await plexo.newDownload()
+    await link.fill(origin.url())
+
+    const dialog = plexo.page.getByRole('dialog', { name: 'New download' })
+    await dialog.getByRole('button', { name: 'Change' }).click()
+    await expect(dialog.getByText(rememberedDir)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Download' }).click()
+    await plexo.waitForHttpStatus('completed')
+
+    // Next new download without a pinned default should remember this directory
+    await plexo.page.getByRole('button', { name: 'Downloads' }).click()
+    await plexo.newDownload()
+    const dialogNext = plexo.page.getByRole('dialog', { name: 'New download' })
+    await expect(dialogNext.getByText(rememberedDir)).toBeVisible()
+    await plexo.page.keyboard.press('Escape')
+
+    // Verify settings updated on disk
+    const saved = JSON.parse(await readFile(join(dirs.userData, 'app-settings.json'), 'utf8'))
+    expect(saved.destinationDir).toBe(rememberedDir)
+    expect(saved.defaultDestinationDir).toBeUndefined()
+  })
+
   test('resumed download continues saving to its original destination directory', async ({
     plexo,
     dirs,
