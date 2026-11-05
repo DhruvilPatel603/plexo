@@ -114,11 +114,8 @@ function NewDownloadForm({ onDone }: { onDone: () => void }): React.JSX.Element 
   const shownLink = links.find((link) => link.id === shownId)
   const position = shownLink ? links.indexOf(shownLink) : -1
   const storeDestinationDir = useAppStore((store) => store.destinationDir)
-  const [destinationDir, setDestinationDir] = useState(() => storeDestinationDir)
-
-  useEffect(() => {
-    setDestinationDir(storeDestinationDir)
-  }, [storeDestinationDir])
+  const [oneOffDestinationDir, setOneOffDestinationDir] = useState<string | null>(null)
+  const destinationDir = oneOffDestinationDir ?? storeDestinationDir
   const full = useAppStore(
     (store) =>
       Object.values(store.downloads).filter((download) => download.status === 'downloading')
@@ -312,7 +309,7 @@ function NewDownloadForm({ onDone }: { onDone: () => void }): React.JSX.Element 
 
   const handleBrowse = async (): Promise<void> => {
     const chosen = await window.plexo.chooseDestinationFolder(destinationDir)
-    if (chosen) setDestinationDir(chosen)
+    if (chosen) setOneOffDestinationDir(chosen)
   }
 
   // A .torrent or .nzb file goes in the link field as its path; the probe reads it from there.
